@@ -103,85 +103,68 @@
             }, []);
 
             React.useEffect(() => {
-                try {
-                    console.log("App: Initializing Firebase...");
-                    const app = initializeApp(JSON.parse(__firebase_config));
-                    const firestore = getFirestore(app);
-                    const firebaseAuth = getAuth(app);
+    const initializeFirebase = async () => {
+        try {
+            console.log("App: Initializing Firebase...");
+            const app = initializeApp(JSON.parse(__firebase_config));
+            const firestore = getFirestore(app);
+            const firebaseAuth = getAuth(app);
 
-                    setDb(firestore);
-                    setAuth(firebaseAuth);
+            setDb(firestore);
+            setAuth(firebaseAuth);
 
-                    const unsubscribe = onAuthStateChanged(firebaseAuth, async (user) => {
-                        if (user) {
-                            console.log("App: User authenticated:", user.uid);
-                            setUserId(user.uid);
-                            setIsAdmin(false);
-                            setIsEditor(false);
-                        } else {
-                            console.log("App: No user, attempting anonymous sign-in or custom token.");
-                            if (__initial_auth_token) {
-                                try {
-                                    await signInWithCustomToken(firebaseAuth, __initial_auth_token);
-                                    console.log("App: Signed in with custom token.");
-                                } catch (error) {
-                                    console.error("App: Error signing in with custom token:", error);
-                                    showMessage("Error during custom token sign-in.", "error");
-                                }
-                            } else {
-                                try {
-                                    await signInAnonymously(firebaseAuth);
-                                    console.log("App: Signed in anonymously.");
-                                } catch (error) {
-                                    console.error("App: Error signing in anonymously:", error);
-                                    showMessage("Error during anonymous sign-in.", "error");
-                                }
-                            }
-                        }
-                    });
-
-                    return () => {
-                        console.log("App: Cleaning up auth listener.");
-                        unsubscribe();
-                    };
-                } catch (error) {
-                    console.error("App: Error initializing Firebase:", error);
-                    showMessage("Failed to initialize Firebase. Check configuration.", "error");
+            onAuthStateChanged(firebaseAuth, async (user) => {
+                if (user) {
+                    console.log("Signed in:", user.uid);
+                    setUserId(user.uid);
+                } else {
+                    try {
+                        const result = await signInAnonymously(firebaseAuth);
+                        console.log("Signed in anonymously:", result.user.uid);
+                        setUserId(result.user.uid);
+                    } catch (error) {
+                        console.error("Anonymous sign-in failed:", error);
+                        showMessage("Failed to connect as guest. Try refreshing.", "error");
+                    }
                 }
-            }, [showMessage]);
+            });
+        } catch (error) {
+            console.error("Firebase initialization error:", error);
+            showMessage("Firebase initialization failed.", "error");
+        }
+    };
+
+    initializeFirebase();
+}, [showMessage]);
 
             React.useEffect(() => {
-                if (db && userId) {
-                    console.log("App: Setting up Firestore snapshot listener for projects.");
-                    const projectsCollectionRef = collection(db, `artifacts/${__app_id}/public/data/projects`);
-                    const q = query(projectsCollectionRef);
+    if (!db) return;
 
-                    const unsubscribe = onSnapshot(q, (snapshot) => {
-                        const fetchedProjects = snapshot.docs.map(doc => ({
-                            id: doc.id,
-                            ...doc.data(),
-                            createdAt: doc.data().createdAt?.toDate(),
-                            shootDay: doc.data().shootDay?.toDate(),
-                            completedAt: doc.data().completedAt?.toDate(),
-                            droppedAt: doc.data().droppedAt?.toDate(),
-                            approvedAt: doc.data().approvedAt?.toDate(),
-                            deadline: doc.data().deadline?.toDate(),
-                        }));
-                        console.log("App: Projects fetched/updated:", fetchedProjects.length, "projects.");
-                        setProjects(fetchedProjects);
-                    }, (error) => {
-                        console.error("App: Error fetching projects:", error);
-                        showMessage("Error fetching projects. Please refresh.", "error");
-                    });
+    console.log("Realtime Firestore: Setting up project listener...");
+    const q = query(collection(db, `artifacts/${__app_id}/public/data/projects`));
+    const unsubscribe = onSnapshot(q, (snapshot) => {
+        const fetchedProjects = snapshot.docs.map(doc => ({
+            id: doc.id,
+            ...doc.data(),
+            createdAt: doc.data().createdAt?.toDate(),
+            shootDay: doc.data().shootDay?.toDate(),
+            completedAt: doc.data().completedAt?.toDate(),
+            droppedAt: doc.data().droppedAt?.toDate(),
+            approvedAt: doc.data().approvedAt?.toDate(),
+            deadline: doc.data().deadline?.toDate(),
+        }));
+        console.log("Realtime Firestore: Projects updated:", fetchedProjects.length);
+        setProjects(fetchedProjects);
+    }, (error) => {
+        console.error("Realtime Firestore error:", error);
+        showMessage("Error fetching projects. Please refresh.", "error");
+    });
 
-                    return () => {
-                        console.log("App: Cleaning up Firestore snapshot listener.");
-                        unsubscribe();
-                    };
-                } else {
-                    console.log("App: Firestore listener not set up, db or userId is null.");
-                }
-            }, [db, userId]);
+    return () => {
+        console.log("Realtime Firestore: Listener cleaned up.");
+        unsubscribe();
+    };
+}, [db]);
 
             const handleAdminLogin = async () => {
                 console.log("Admin Login attempt.");
