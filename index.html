@@ -37,7 +37,7 @@
     <script type="module">
         import { initializeApp } from "https://www.gstatic.com/firebasejs/11.10.0/firebase-app.js";
         import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged, signOut } from "https://www.gstatic.com/firebasejs/11.10.0/firebase-auth.js";
-        import { getFirestore, collection, addDoc, updateDoc, doc, onSnapshot, query, serverTimestamp, orderBy } from "https://www.gstatic.com/firebasejs/11.10.0/firebase-firestore.js";
+        import { getFirestore, collection, addDoc, updateDoc, doc, onSnapshot, query, serverTimestamp, orderBy, deleteDoc } from "https://www.gstatic.com/firebasejs/11.10.0/firebase-firestore.js";
         
         // Firebase configuration
         const __app_id = 'possible-edit'; // Matches projectId
@@ -54,7 +54,7 @@
 
         window.firebaseDependencies = {
             initializeApp, getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged, signOut,
-            getFirestore, collection, addDoc, updateDoc, doc, onSnapshot, query, serverTimestamp, orderBy
+            getFirestore, collection, addDoc, updateDoc, doc, onSnapshot, query, serverTimestamp, orderBy, deleteDoc
         };
         window.globalAppConfig = {
             __app_id, __firebase_config, __initial_auth_token
@@ -63,7 +63,7 @@
 
     <script type="text/babel">
         const { initializeApp, getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged, signOut } = window.firebaseDependencies;
-        const { getFirestore, collection, addDoc, updateDoc, doc, onSnapshot, query, serverTimestamp, orderBy } = window.firebaseDependencies;
+        const { getFirestore, collection, addDoc, updateDoc, doc, onSnapshot, query, serverTimestamp, orderBy, deleteDoc } = window.firebaseDependencies;
         const { __app_id, __firebase_config, __initial_auth_token } = window.globalAppConfig;
 
         // Initialize Firebase
@@ -380,6 +380,24 @@
                 }
             };
 
+            const handleDeleteProject = async (projectId) => {
+                console.log(`handleDeleteProject: Attempting to delete project ${projectId}.`);
+                if (!isAdmin) {
+                    showMessage("Permission denied. Only admins can delete projects.", "error");
+                    console.error("handleDeleteProject: Permission denied.");
+                    return;
+                }
+                try {
+                    const projectRef = doc(db, `artifacts/${__app_id}/public/data/projects`, projectId);
+                    await deleteDoc(projectRef);
+                    console.log(`handleDeleteProject: Project ${projectId} deleted successfully.`);
+                    showMessage("Project deleted successfully!", "success");
+                } catch (e) {
+                    console.error("handleDeleteProject: Error deleting project: ", e);
+                    showMessage("Error deleting project. Please try again.", "error");
+                }
+            };
+
             const getFilteredProjects = React.useCallback(() => {
                 let sortedProjects = [...projects];
                 sortedProjects.sort((a, b) => {
@@ -522,6 +540,7 @@
                                         onEditProject={handleEditProject}
                                         onApproveStatusChange={handleApproveStatusChange}
                                         onRejectStatusChange={handleRejectStatusChange}
+                                        onDeleteProject={handleDeleteProject}
                                         isAdmin={isAdmin}
                                         isEditor={isEditor}
                                         currentUserId={userId}
@@ -544,7 +563,7 @@
             );
         };
 
-        const ProjectCard = ({ project, calculateDaysAfterShoot, calculateRemainingDays, onUpdateStatus, onEditProject, onApproveStatusChange, onRejectStatusChange, isAdmin, isEditor, currentUserId }) => {
+        const ProjectCard = ({ project, calculateDaysAfterShoot, calculateRemainingDays, onUpdateStatus, onEditProject, onApproveStatusChange, onRejectStatusChange, onDeleteProject, isAdmin, isEditor, currentUserId }) => {
             const [isEditing, setIsEditing] = React.useState(false);
             const [editedProjectName, setEditedProjectName] = React.useState(project.projectName);
             const [editedNote, setEditedNote] = React.useState(project.note);
@@ -719,6 +738,14 @@
                                         className="bg-gray-700 hover:bg-gray-800 text-white text-xs font-semibold py-2 px-4 rounded-full shadow-md transition duration-300 ease-in-out transform hover:scale-105"
                                     >
                                         Edit
+                                    </button>
+                                )}
+                                {isAdmin && (
+                                    <button
+                                        onClick={() => onDeleteProject(project.id)}
+                                        className="bg-red-600 hover:bg-red-700 text-white text-xs font-semibold py-2 px-4 rounded-full shadow-md transition duration-300 ease-in-out transform hover:scale-105"
+                                    >
+                                        Delete
                                     </button>
                                 )}
                             </>
