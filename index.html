@@ -37,8 +37,8 @@
     <script type="module">
         import { initializeApp } from "https://www.gstatic.com/firebasejs/11.10.0/firebase-app.js";
         import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged, signOut } from "https://www.gstatic.com/firebasejs/11.10.0/firebase-auth.js";
-        import { getFirestore, collection, addDoc, updateDoc, doc, onSnapshot, query, serverTimestamp } from "https://www.gstatic.com/firebasejs/11.10.0/firebase-firestore.js";
-
+        import { getFirestore, collection, addDoc, updateDoc, doc, onSnapshot, query, serverTimestamp, orderBy } from "https://www.gstatic.com/firebasejs/11.10.0/firebase-firestore.js";
+        
         // Firebase configuration
         const __app_id = 'possible-edit'; // Matches projectId
         const __firebase_config = JSON.stringify({
@@ -53,9 +53,9 @@
         const __initial_auth_token = null; // Use custom token if available
 
         window.firebaseDependencies = {
-            initializeApp, getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged, signOut,
-            getFirestore, collection, addDoc, updateDoc, doc, onSnapshot, query, serverTimestamp
-        };
+  initializeApp, getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged, signOut,
+  getFirestore, collection, addDoc, updateDoc, doc, onSnapshot, query, serverTimestamp, orderBy
+};
         window.globalAppConfig = {
             __app_id, __firebase_config, __initial_auth_token
         };
@@ -63,7 +63,7 @@
 
     <script type="text/babel">
         const { initializeApp, getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged, signOut } = window.firebaseDependencies;
-        const { getFirestore, collection, addDoc, updateDoc, doc, onSnapshot, query, serverTimestamp } = window.firebaseDependencies;
+        const { getFirestore, collection, addDoc, updateDoc, doc, onSnapshot, query, serverTimestamp, orderBy } = window.firebaseDependencies;
         const { __app_id, __firebase_config, __initial_auth_token } = window.globalAppConfig;
 
         const formatDateToDDMMYYYY = (date) => {
@@ -103,65 +103,43 @@
             }, []);
 
             React.useEffect(() => {
-    const initializeFirebase = async () => {
-        try {
-            console.log("App: Initializing Firebase...");
-            const app = initializeApp(JSON.parse(__firebase_config));
-            const firestore = getFirestore(app);
-            const firebaseAuth = getAuth(app);
-
-            setDb(firestore);
-            setAuth(firebaseAuth);
-
-            onAuthStateChanged(firebaseAuth, async (user) => {
-                if (user) {
-                    console.log("Signed in:", user.uid);
-                    setUserId(user.uid);
-                } else {
-                    try {
-                        const result = await signInAnonymously(firebaseAuth);
-                        console.log("Signed in anonymously:", result.user.uid);
-                        setUserId(result.user.uid);
-                    } catch (error) {
-                        console.error("Anonymous sign-in failed:", error);
-                        showMessage("Failed to connect as guest. Try refreshing.", "error");
-                    }
-                }
-            });
-        } catch (error) {
-            console.error("Firebase initialization error:", error);
-            showMessage("Firebase initialization failed.", "error");
-        }
-    };
-
-    initializeFirebase();
-}, [showMessage]);
-
-            React.useEffect(() => {
     if (!db) return;
 
-    console.log("Realtime Firestore: Setting up project listener...");
-    const q = query(collection(db, `artifacts/${__app_id}/public/data/projects`));
+    console.log("🔄 Setting up real-time Firestore listener with orderBy(createdAt)...");
+    const q = query(
+        collection(db, `artifacts/${__app_id}/public/data/projects`),
+        orderBy("createdAt", "desc")
+    );
+
     const unsubscribe = onSnapshot(q, (snapshot) => {
-        const fetchedProjects = snapshot.docs.map(doc => ({
-            id: doc.id,
-            ...doc.data(),
-            createdAt: doc.data().createdAt?.toDate(),
-            shootDay: doc.data().shootDay?.toDate(),
-            completedAt: doc.data().completedAt?.toDate(),
-            droppedAt: doc.data().droppedAt?.toDate(),
-            approvedAt: doc.data().approvedAt?.toDate(),
-            deadline: doc.data().deadline?.toDate(),
-        }));
-        console.log("Realtime Firestore: Projects updated:", fetchedProjects.length);
-        setProjects(fetchedProjects);
+        try {
+            const fetchedProjects = snapshot.docs.map(doc => {
+                const data = doc.data();
+                return {
+                    id: doc.id,
+                    ...data,
+                    createdAt: data.createdAt?.toDate?.() || new Date(),
+                    shootDay: data.shootDay?.toDate?.(),
+                    completedAt: data.completedAt?.toDate?.(),
+                    droppedAt: data.droppedAt?.toDate?.(),
+                    approvedAt: data.approvedAt?.toDate?.(),
+                    deadline: data.deadline?.toDate?.(),
+                };
+            });
+
+            console.log(`✅ Projects loaded: ${fetchedProjects.length}`);
+            setProjects(fetchedProjects);
+        } catch (err) {
+            console.error("❌ Snapshot parse error:", err);
+            showMessage("Error loading projects. Please refresh.", "error");
+        }
     }, (error) => {
-        console.error("Realtime Firestore error:", error);
+        console.error("❌ Firestore listener failed:", error);
         showMessage("Error fetching projects. Please refresh.", "error");
     });
 
     return () => {
-        console.log("Realtime Firestore: Listener cleaned up.");
+        console.log("🛑 Firestore listener cleaned up.");
         unsubscribe();
     };
 }, [db]);
@@ -228,6 +206,7 @@
                         createdAt: serverTimestamp(),
                         status: 'on hold',
                         deadline: newProject.deadline ? new Date(newProject.deadline) : null,
+shootDay: newProject.shootDay ? new Date(newProject.shootDay) : null,
                     });
                     console.log("handleAddProject: Document written with ID: ", docRef.id);
                     showMessage("Project added successfully!", "success");
