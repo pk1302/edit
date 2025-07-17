@@ -1,0 +1,861 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Possible Studio Edit</title>
+    <!-- Tailwind CSS CDN -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Inter Font -->
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+    <style>
+        body {
+            font-family: 'Inter', sans-serif;
+        }
+        input[type="date"]::-webkit-datetime-edit-day-field:not([value=""]),
+        input[type="date"]::-webkit-datetime-edit-month-field:not([value=""]),
+        input[type="date"]::-webkit-datetime-edit-year-field:not([value=""]) {
+            color: #4B5563;
+        }
+        input[type="date"]:invalid::-webkit-datetime-edit-day-field,
+        input[type="date"]:invalid::-webkit-datetime-edit-month-field,
+        input[type="date"]:invalid::-webkit-datetime-edit-year-field {
+            color: #9CA3AF;
+        }
+    </style>
+</head>
+<body>
+    <div id="root"></div>
+
+    <!-- React and ReactDOM CDNs -->
+    <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+    <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+    <!-- Babel Standalone for JSX transformation -->
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+
+    <!-- Firebase CDNs -->
+    <script type="module">
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/11.10.0/firebase-app.js";
+        import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged, signOut } from "https://www.gstatic.com/firebasejs/11.10.0/firebase-auth.js";
+        import { getFirestore, collection, addDoc, updateDoc, doc, onSnapshot, query, serverTimestamp } from "https://www.gstatic.com/firebasejs/11.10.0/firebase-firestore.js";
+
+        // Firebase configuration
+        const __app_id = 'possible-edit'; // Matches projectId
+        const __firebase_config = JSON.stringify({
+            apiKey: "AIzaSyBgK_QIzwtpTv23I54CcLKThWuzPiG5F-Q",
+            authDomain: "possible-edit.firebaseapp.com",
+            projectId: "possible-edit",
+            storageBucket: "possible-edit.firebasestorage.app",
+            messagingSenderId: "1035721158713",
+            appId: "1:1035721158713:web:26ec99e2bc141c39f51de8",
+            measurementId: "G-EM1KWNFJBC"
+        });
+        const __initial_auth_token = null; // Use custom token if available
+
+        window.firebaseDependencies = {
+            initializeApp, getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged, signOut,
+            getFirestore, collection, addDoc, updateDoc, doc, onSnapshot, query, serverTimestamp
+        };
+        window.globalAppConfig = {
+            __app_id, __firebase_config, __initial_auth_token
+        };
+    </script>
+
+    <script type="text/babel">
+        const { initializeApp, getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged, signOut } = window.firebaseDependencies;
+        const { getFirestore, collection, addDoc, updateDoc, doc, onSnapshot, query, serverTimestamp } = window.firebaseDependencies;
+        const { __app_id, __firebase_config, __initial_auth_token } = window.globalAppConfig;
+
+        const formatDateToDDMMYYYY = (date) => {
+            if (!date) return 'N/A';
+            const d = new Date(date);
+            const day = String(d.getDate()).padStart(2, '0');
+            const month = String(d.getMonth() + 1).padStart(2, '0');
+            const year = d.getFullYear();
+            return `${day}/${month}/${year}`;
+        };
+
+        const formatDateTime = (date) => {
+            if (!date) return 'N/A';
+            const d = new Date(date);
+            return d.toLocaleString();
+        };
+
+        const App = () => {
+            const [db, setDb] = React.useState(null);
+            const [auth, setAuth] = React.useState(null);
+            const [userId, setUserId] = React.useState(null);
+            const [isAdmin, setIsAdmin] = React.useState(false);
+            const [isEditor, setIsEditor] = React.useState(false);
+            const [adminPassword, setAdminPassword] = React.useState('');
+            const [editorPassword, setEditorPassword] = React.useState('');
+            const [projects, setProjects] = React.useState([]);
+            const [message, setMessage] = React.useState({ text: '', type: '' });
+            const [showAddProjectModal, setShowAddProjectModal] = React.useState(false);
+
+            const showMessage = React.useCallback((text, type) => {
+                console.log(`Message: ${type.toUpperCase()} - ${text}`);
+                setMessage({ text, type });
+                const timer = setTimeout(() => {
+                    setMessage({ text: '', type: '' });
+                }, 3000);
+                return () => clearTimeout(timer);
+            }, []);
+
+            React.useEffect(() => {
+                try {
+                    console.log("App: Initializing Firebase...");
+                    const app = initializeApp(JSON.parse(__firebase_config));
+                    const firestore = getFirestore(app);
+                    const firebaseAuth = getAuth(app);
+
+                    setDb(firestore);
+                    setAuth(firebaseAuth);
+
+                    const unsubscribe = onAuthStateChanged(firebaseAuth, async (user) => {
+                        if (user) {
+                            console.log("App: User authenticated:", user.uid);
+                            setUserId(user.uid);
+                            setIsAdmin(false);
+                            setIsEditor(false);
+                        } else {
+                            console.log("App: No user, attempting anonymous sign-in or custom token.");
+                            if (__initial_auth_token) {
+                                try {
+                                    await signInWithCustomToken(firebaseAuth, __initial_auth_token);
+                                    console.log("App: Signed in with custom token.");
+                                } catch (error) {
+                                    console.error("App: Error signing in with custom token:", error);
+                                    showMessage("Error during custom token sign-in.", "error");
+                                }
+                            } else {
+                                try {
+                                    await signInAnonymously(firebaseAuth);
+                                    console.log("App: Signed in anonymously.");
+                                } catch (error) {
+                                    console.error("App: Error signing in anonymously:", error);
+                                    showMessage("Error during anonymous sign-in.", "error");
+                                }
+                            }
+                        }
+                    });
+
+                    return () => {
+                        console.log("App: Cleaning up auth listener.");
+                        unsubscribe();
+                    };
+                } catch (error) {
+                    console.error("App: Error initializing Firebase:", error);
+                    showMessage("Failed to initialize Firebase. Check configuration.", "error");
+                }
+            }, [showMessage]);
+
+            React.useEffect(() => {
+                if (db && userId) {
+                    console.log("App: Setting up Firestore snapshot listener for projects.");
+                    const projectsCollectionRef = collection(db, `artifacts/${__app_id}/public/data/projects`);
+                    const q = query(projectsCollectionRef);
+
+                    const unsubscribe = onSnapshot(q, (snapshot) => {
+                        const fetchedProjects = snapshot.docs.map(doc => ({
+                            id: doc.id,
+                            ...doc.data(),
+                            createdAt: doc.data().createdAt?.toDate(),
+                            shootDay: doc.data().shootDay?.toDate(),
+                            completedAt: doc.data().completedAt?.toDate(),
+                            droppedAt: doc.data().droppedAt?.toDate(),
+                            approvedAt: doc.data().approvedAt?.toDate(),
+                            deadline: doc.data().deadline?.toDate(),
+                        }));
+                        console.log("App: Projects fetched/updated:", fetchedProjects.length, "projects.");
+                        setProjects(fetchedProjects);
+                    }, (error) => {
+                        console.error("App: Error fetching projects:", error);
+                        showMessage("Error fetching projects. Please refresh.", "error");
+                    });
+
+                    return () => {
+                        console.log("App: Cleaning up Firestore snapshot listener.");
+                        unsubscribe();
+                    };
+                } else {
+                    console.log("App: Firestore listener not set up, db or userId is null.");
+                }
+            }, [db, userId]);
+
+            const handleAdminLogin = async () => {
+                console.log("Admin Login attempt.");
+                if (adminPassword === '1122') {
+                    setIsAdmin(true);
+                    setIsEditor(false);
+                    showMessage("Admin logged in successfully!", "success");
+                } else {
+                    showMessage("Incorrect admin password.", "error");
+                }
+                setAdminPassword('');
+            };
+
+            const handleEditorLogin = async () => {
+                console.log("Editor Login attempt.");
+                if (editorPassword === '9042') {
+                    setIsEditor(true);
+                    setIsAdmin(false);
+                    showMessage("Editor logged in successfully!", "success");
+                } else {
+                    showMessage("Incorrect editor password.", "error");
+                }
+                setEditorPassword('');
+            };
+
+            const handleLogout = async () => {
+                console.log("Logout attempt.");
+                try {
+                    if (auth) {
+                        await signOut(auth);
+                        console.log("Logout: signOut successful.");
+                    }
+                    setIsAdmin(false);
+                    setIsEditor(false);
+                    setUserId(null);
+                    if (__initial_auth_token) {
+                        console.log("Logout: Attempting re-authentication with custom token.");
+                        await signInWithCustomToken(auth, __initial_auth_token);
+                    } else {
+                        console.log("Logout: Attempting anonymous re-authentication.");
+                        await signInAnonymously(auth);
+                    }
+                    console.log("Logout: Re-authentication successful.");
+                    showMessage("Logged out successfully.", "info");
+                } catch (error) {
+                    console.error("Logout: Error during logout or re-authentication:", error);
+                    showMessage("Error logging out. Please try again.", "error");
+                }
+            };
+
+            const handleAddProject = async (newProject) => {
+                console.log("handleAddProject: Attempting to add new project.");
+                if (!db) {
+                    showMessage("Database not initialized.", "error");
+                    console.error("handleAddProject: DB is null.");
+                    return;
+                }
+                try {
+                    const docRef = await addDoc(collection(db, `artifacts/${__app_id}/public/data/projects`), {
+                        ...newProject,
+                        createdAt: serverTimestamp(),
+                        status: 'on hold',
+                        deadline: newProject.deadline ? new Date(newProject.deadline) : null,
+                    });
+                    console.log("handleAddProject: Document written with ID: ", docRef.id);
+                    showMessage("Project added successfully!", "success");
+                    setShowAddProjectModal(false);
+                } catch (e) {
+                    console.error("handleAddProject: Error adding document: ", e);
+                    showMessage("Error adding project. Please try again.", "error");
+                }
+            };
+
+            const handleUpdateProjectStatus = async (projectId, newStatus) => {
+                console.log(`handleUpdateProjectStatus: Updating project ${projectId} to status ${newStatus}.`);
+                if (!db) {
+                    showMessage("Database not initialized.", "error");
+                    console.error("handleUpdateProjectStatus: DB is null.");
+                    return;
+                }
+                try {
+                    const projectRef = doc(db, `artifacts/${__app_id}/public/data/projects`, projectId);
+                    const currentProject = projects.find(p => p.id === projectId);
+                    if (!currentProject) {
+                        showMessage("Project not found.", "error");
+                        console.error(`handleUpdateProjectStatus: Project ${projectId} not found in state.`);
+                        return;
+                    }
+                    if (isAdmin) {
+                        const updateData = { status: newStatus, requestedStatus: null, requestedBy: null, approvedAt: null };
+                        if (newStatus === 'completed') {
+                            updateData.completedAt = serverTimestamp();
+                            updateData.droppedAt = null;
+                        } else if (newStatus === 'dropped') {
+                            updateData.droppedAt = serverTimestamp();
+                            updateData.completedAt = null;
+                        } else {
+                            updateData.completedAt = null;
+                            updateData.droppedAt = null;
+                        }
+                        await updateDoc(projectRef, updateData);
+                        console.log(`handleUpdateProjectStatus: Project ${projectId} status updated by admin to ${newStatus}.`);
+                        showMessage("Project status updated by admin!", "success");
+                    } else {
+                        if (newStatus === 'completed' || newStatus === 'dropped') {
+                            await updateDoc(projectRef, {
+                                requestedStatus: newStatus,
+                                requestedBy: userId,
+                            });
+                            console.log(`Project ${projectId} status change to ${newStatus} requested by ${userId}.`);
+                            showMessage(`Status change to '${newStatus}' requested. Pending admin approval.`, "info");
+                        } else {
+                            await updateDoc(projectRef, {
+                                status: newStatus,
+                                requestedStatus: null,
+                                requestedBy: null,
+                                completedAt: null,
+                                droppedAt: null,
+                                approvedAt: null,
+                            });
+                            console.log(`Project ${projectId} status updated to ${newStatus} by non-admin.`);
+                            showMessage("Project status updated!", "success");
+                        }
+                    }
+                } catch (e) {
+                    console.error("handleUpdateProjectStatus: Error updating document: ", e);
+                    showMessage("Error updating project status. Please try again.", "error");
+                }
+            };
+
+            const handleApproveStatusChange = async (projectId) => {
+                console.log(`handleApproveStatusChange: Approving status for project ${projectId}.`);
+                if (!db || !isAdmin) {
+                    showMessage("Permission denied.", "error");
+                    console.error("handleApproveStatusChange: Permission denied.");
+                    return;
+                }
+                try {
+                    const projectRef = doc(db, `artifacts/${__app_id}/public/data/projects`, projectId);
+                    const projectToApprove = projects.find(p => p.id === projectId);
+                    if (!projectToApprove || !projectToApprove.requestedStatus) {
+                        showMessage("No pending status change to approve.", "error");
+                        console.error("handleApproveStatusChange: No pending status change.");
+                        return;
+                    }
+                    const newStatus = projectToApprove.requestedStatus;
+                    const updateData = {
+                        status: newStatus,
+                        requestedStatus: null,
+                        requestedBy: null,
+                        approvedAt: serverTimestamp(),
+                    };
+                    if (newStatus === 'completed') {
+                        updateData.completedAt = serverTimestamp();
+                        updateData.droppedAt = null;
+                    } else if (newStatus === 'dropped') {
+                        updateData.droppedAt = serverTimestamp();
+                        updateData.completedAt = null;
+                    }
+                    await updateDoc(projectRef, updateData);
+                    console.log(`handleApproveStatusChange: Project ${projectId} status approved to ${newStatus}.`);
+                    showMessage(`Status change to '${newStatus}' approved!`, "success");
+                } catch (e) {
+                    console.error("handleApproveStatusChange: Error approving status change:", e);
+                    showMessage("Error approving status change. Please try again.", "error");
+                }
+            };
+
+            const handleRejectStatusChange = async (projectId) => {
+                console.log(`handleRejectStatusChange: Rejecting status for project ${projectId}.`);
+                if (!db || !isAdmin) {
+                    showMessage("Permission denied.", "error");
+                    console.error("handleRejectStatusChange: Permission denied.");
+                    return;
+                }
+                try {
+                    const projectRef = doc(db, `artifacts/${__app_id}/public/data/projects`, projectId);
+                    await updateDoc(projectRef, {
+                        requestedStatus: null,
+                        requestedBy: null,
+                    });
+                    console.log(`handleRejectStatusChange: Project ${projectId} status change rejected.`);
+                    showMessage("Status change request rejected.", "info");
+                } catch (e) {
+                    console.error("handleRejectStatusChange: Error rejecting status change:", e);
+                    showMessage("Error rejecting status change. Please try again.", "error");
+                }
+            };
+
+            const handleEditProject = async (projectId, updatedFields) => {
+                console.log(`handleEditProject: Editing project ${projectId}.`);
+                if (!db) {
+                    showMessage("Database not initialized.", "error");
+                    console.error("handleEditProject: DB is null.");
+                    return;
+                }
+                try {
+                    const projectRef = doc(db, `artifacts/${__app_id}/public/data/projects`, projectId);
+                    await updateDoc(projectRef, updatedFields);
+                    console.log(`handleEditProject: Project ${projectId} updated.`);
+                    showMessage("Project updated successfully!", "success");
+                } catch (e) {
+                    console.error("handleEditProject: Error updating project: ", e);
+                    showMessage("Error updating project. Please try again.", "error");
+                }
+            };
+
+            const getFilteredProjects = React.useCallback(() => {
+                let sortedProjects = [...projects];
+                sortedProjects.sort((a, b) => {
+                    const statusOrder = { 'on process': 1, 'on hold': 2, 'completed': 3, 'dropped': 4 };
+                    const statusA = statusOrder[a.status] || 99;
+                    const statusB = statusOrder[b.status] || 99;
+                    if (statusA !== statusB) {
+                        return statusA - statusB;
+                    }
+                    if (a.status === 'on process' || a.status === 'on hold') {
+                        if (!a.shootDay && !b.shootDay) return 0;
+                        if (!a.shootDay) return 1;
+                        if (!b.shootDay) return -1;
+                        return a.shootDay.getTime() - b.shootDay.getTime();
+                    }
+                    if (a.status === 'completed' || a.status === 'dropped') {
+                        const timeA = a.status === 'completed' ? a.completedAt?.getTime() : a.droppedAt?.getTime();
+                        const timeB = b.status === 'completed' ? b.completedAt?.getTime() : b.droppedAt?.getTime();
+                        if (!timeA && !timeB) return 0;
+                        if (!timeA) return 1;
+                        if (!timeB) return -1;
+                        return timeB - timeA;
+                    }
+                    return 0;
+                });
+                return sortedProjects;
+            }, [projects]);
+
+            const calculateDaysAfterShoot = (shootDay) => {
+                if (!shootDay) return 'N/A';
+                const today = new Date();
+                const shootDate = new Date(shootDay.getFullYear(), shootDay.getMonth(), shootDay.getDate());
+                const currentDate = new Date(today.getFullYear(), today.getMonth(), today.getDate());
+                const diffTime = Math.abs(currentDate.getTime() - shootDate.getTime());
+                const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+                return diffDays;
+            };
+
+            const calculateRemainingDays = (deadline) => {
+                if (!deadline) return 'No Deadline';
+                const today = new Date();
+                const deadlineDate = new Date(deadline.getFullYear(), deadline.getMonth(), deadline.getDate());
+                const currentDate = new Date(today.getFullYear(), today.getMonth(), today.getDate());
+                const diffTime = deadlineDate.getTime() - currentDate.getTime();
+                const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+                if (diffDays > 0) {
+                    return `${diffDays} day(s) remaining`;
+                } else if (diffDays === 0) {
+                    return 'Due Today!';
+                } else {
+                    return `${Math.abs(diffDays)} day(s) overdue`;
+                }
+            };
+
+            return (
+                <div className="min-h-screen bg-white font-sans text-gray-800 flex flex-col">
+                    {message.text && (
+                        <div className={`fixed top-4 left-1/2 transform -translate-x-1/2 px-6 py-3 rounded-lg shadow-lg z-50
+                            ${message.type === 'success' ? 'bg-green-500 text-white' : ''}
+                            ${message.type === 'error' ? 'bg-red-500 text-white' : ''}
+                            ${message.type === 'info' ? 'bg-blue-500 text-white' : ''}`}>
+                            {message.text}
+                        </div>
+                    )}
+                    {!db && !auth && message.text === '' && (
+                        <div className="fixed top-4 left-1/2 transform -translate-x-1/2 px-6 py-3 rounded-lg shadow-lg z-50 bg-red-500 text-white">
+                            Error: Unable to connect to the database. Please check Firebase configuration.
+                        </div>
+                    )}
+                    <header className="bg-gray-900 text-white p-3 shadow-xl rounded-b-lg">
+                        <div className="container mx-auto flex flex-col md:flex-row justify-between items-center">
+                            <h1 className="text-3xl font-extrabold mb-2 md:mb-0 tracking-tight">Possible Studio Edit</h1>
+                            <div className="flex flex-col sm:flex-row items-center space-y-2 sm:space-y-0 sm:space-x-3">
+                                {isAdmin || isEditor ? (
+                                    <button
+                                        onClick={handleLogout}
+                                        className="bg-red-600 hover:bg-red-700 text-white text-sm font-semibold py-1.5 px-4 rounded-full shadow-md transition duration-300 ease-in-out transform hover:scale-105"
+                                    >
+                                        Logout
+                                    </button>
+                                ) : (
+                                    <div className="flex flex-col sm:flex-row items-center space-y-1.5 sm:space-y-0 sm:space-x-2 w-full md:w-auto">
+                                        <input
+                                            type="password"
+                                            placeholder="Admin Password"
+                                            className="p-1.5 rounded-md text-gray-900 focus:outline-none focus:ring-2 focus:ring-yellow-400 w-full sm:w-auto text-sm"
+                                            value={adminPassword}
+                                            onChange={(e) => setAdminPassword(e.target.value)}
+                                        />
+                                        <button
+                                            onClick={handleAdminLogin}
+                                            className="bg-yellow-400 hover:bg-yellow-500 text-black text-sm font-semibold py-1.5 px-4 rounded-full shadow-md transition duration-300 ease-in-out transform hover:scale-105 w-full sm:w-auto"
+                                        >
+                                            Admin Login
+                                        </button>
+                                        <input
+                                            type="password"
+                                            placeholder="Editor Password"
+                                            className="p-1.5 rounded-md text-gray-900 focus:outline-none focus:ring-2 focus:ring-yellow-400 w-full sm:w-auto text-sm"
+                                            value={editorPassword}
+                                            onChange={(e) => setEditorPassword(e.target.value)}
+                                        />
+                                        <button
+                                            onClick={handleEditorLogin}
+                                            className="bg-yellow-400 hover:bg-yellow-500 text-black font-semibold py-1.5 px-4 rounded-full shadow-md transition duration-300 ease-in-out transform hover:scale-105 w-full sm:w-auto"
+                                        >
+                                            Editor Login
+                                        </button>
+                                    </div>
+                                )}
+                            </div>
+                        </div>
+                    </header>
+                    <main className="container mx-auto p-6 flex-grow max-w-7xl">
+                        <div className="flex justify-center mb-10">
+                            <button
+                                className="px-8 py-4 rounded-full text-xl font-bold bg-yellow-400 text-black shadow-xl transition duration-300 ease-in-out transform hover:scale-105"
+                            >
+                                All Projects
+                            </button>
+                        </div>
+                        {isAdmin && (
+                            <div className="mb-10 text-center">
+                                <button
+                                    onClick={() => setShowAddProjectModal(true)}
+                                    className="bg-yellow-500 hover:bg-yellow-600 text-black font-bold py-3.5 px-10 rounded-full shadow-xl transition duration-300 ease-in-out transform hover:scale-105"
+                                >
+                                    + Add New Project
+                                </button>
+                            </div>
+                        )}
+                        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
+                            {getFilteredProjects().length === 0 ? (
+                                <p className="col-span-full text-center text-gray-600 text-2xl py-20">
+                                    No projects found. Start by adding a new project!
+                                </p>
+                            ) : (
+                                getFilteredProjects().map(project => (
+                                    <ProjectCard
+                                        key={project.id}
+                                        project={project}
+                                        calculateDaysAfterShoot={calculateDaysAfterShoot}
+                                        calculateRemainingDays={calculateRemainingDays}
+                                        onUpdateStatus={handleUpdateProjectStatus}
+                                        onEditProject={handleEditProject}
+                                        onApproveStatusChange={handleApproveStatusChange}
+                                        onRejectStatusChange={handleRejectStatusChange}
+                                        isAdmin={isAdmin}
+                                        isEditor={isEditor}
+                                        currentUserId={userId}
+                                    />
+                                ))
+                            )}
+                        </div>
+                    </main>
+                    <footer className="bg-gray-900 text-white text-center p-4 mt-8 rounded-t-lg">
+                        <p>© {new Date().getFullYear()} Possible Studio Edit. All rights reserved.</p>
+                    </footer>
+                    {showAddProjectModal && (
+                        <AddProjectModal
+                            onClose={() => setShowAddProjectModal(false)}
+                            onAddProject={handleAddProject}
+                            isAdmin={isAdmin}
+                        />
+                    )}
+                </div>
+            );
+        };
+
+        const ProjectCard = ({ project, calculateDaysAfterShoot, calculateRemainingDays, onUpdateStatus, onEditProject, onApproveStatusChange, onRejectStatusChange, isAdmin, isEditor, currentUserId }) => {
+            const [isEditing, setIsEditing] = React.useState(false);
+            const [editedProjectName, setEditedProjectName] = React.useState(project.projectName);
+            const [editedNote, setEditedNote] = React.useState(project.note);
+            const [editedStatus, setEditedStatus] = React.useState(project.status);
+
+            React.useEffect(() => {
+                setEditedProjectName(project.projectName);
+                setEditedNote(project.note);
+                setEditedStatus(project.status);
+            }, [project]);
+
+            const getStatusDisplay = (status) => {
+                switch (status) {
+                    case 'completed': return { text: 'Completed', color: 'bg-green-500' };
+                    case 'dropped': return { text: 'Dropped', color: 'bg-red-500' };
+                    case 'on hold': return { text: 'On Hold', color: 'bg-orange-500' };
+                    case 'on process':
+                    default: return { text: 'On Process', color: 'bg-yellow-500' };
+                }
+            };
+
+            const currentStatusDisplay = getStatusDisplay(project.status);
+            const requestedStatusDisplay = project.requestedStatus ? getStatusDisplay(project.requestedStatus) : null;
+            const cardBackgroundColor = (project.status === 'completed' || project.status === 'dropped') ? 'bg-yellow-50' : 'bg-white';
+
+            const handleSaveEdit = () => {
+                const updatedFields = {
+                    note: editedNote,
+                };
+                if (isAdmin) {
+                    updatedFields.projectName = editedProjectName;
+                }
+                onEditProject(project.id, updatedFields);
+                if (editedStatus !== project.status) {
+                    onUpdateStatus(project.id, editedStatus);
+                }
+                setIsEditing(false);
+            };
+
+            const handleCancelEdit = () => {
+                setEditedProjectName(project.projectName);
+                setEditedNote(project.note);
+                setEditedStatus(project.status);
+                setIsEditing(false);
+            };
+
+            return (
+                <div className={`${cardBackgroundColor} rounded-xl shadow-lg p-5 border border-gray-200 hover:shadow-xl transition-shadow duration-300 flex flex-col justify-between`}>
+                    {isEditing ? (
+                        <>
+                            <div className="mb-3">
+                                <label htmlFor={`projectName-${project.id}`} className="block text-gray-700 text-sm font-bold mb-1">
+                                    Project Name:
+                                </label>
+                                {isAdmin ? (
+                                    <input
+                                        type="text"
+                                        id={`projectName-${project.id}`}
+                                        className="shadow appearance-none border rounded-lg w-full py-2 px-3 text-gray-700 leading-tight focus:outline-none focus:ring-2 focus:ring-yellow-400"
+                                        value={editedProjectName}
+                                        onChange={(e) => setEditedProjectName(e.target.value)}
+                                    />
+                                ) : (
+                                    <p className="py-2 px-3 text-gray-800 bg-gray-50 rounded-lg font-medium">{project.projectName}</p>
+                                )}
+                            </div>
+                            <div className="mb-3">
+                                <label htmlFor={`note-${project.id}`} className="block text-gray-700 text-sm font-bold mb-1">
+                                    Note:
+                                </label>
+                                <textarea
+                                    id="note"
+                                    rows="3"
+                                    className="shadow appearance-none border rounded-lg w-full py-2 px-3 text-gray-700 leading-tight focus:outline-none focus:ring-2 focus:ring-yellow-400 resize-none"
+                                    value={editedNote}
+                                    onChange={(e) => setEditedNote(e.target.value)}
+                                ></textarea>
+                            </div>
+                            <div className="mb-3">
+                                <label htmlFor={`status-${project.id}`} className="block text-gray-700 text-sm font-bold mb-1">
+                                    Status:
+                                </label>
+                                <select
+                                    id={`status-${project.id}`}
+                                    className="shadow appearance-none border rounded-lg w-full py-2 px-3 text-gray-700 leading-tight focus:outline-none focus:ring-2 focus:ring-yellow-400"
+                                    value={editedStatus}
+                                    onChange={(e) => setEditedStatus(e.target.value)}
+                                >
+                                    <option value="on process">On Process</option>
+                                    <option value="on hold">On Hold</option>
+                                    <option value="dropped">Dropped</option>
+                                    <option value="completed">Completed</option>
+                                </select>
+                            </div>
+                        </>
+                    ) : (
+                        <>
+                            <h3 className="text-xl font-bold text-gray-900 mb-2">{project.projectName}</h3>
+                            <div className="text-xs text-gray-600 mb-3 leading-tight">
+                                <div className="grid grid-cols-2 gap-x-2 gap-y-1">
+                                    <p><strong className="text-gray-700">Shoot Day:</strong> {formatDateToDDMMYYYY(project.shootDay)}</p>
+                                    <p><strong className="text-gray-700">Days After Shoot:</strong> {calculateDaysAfterShoot(project.shootDay)}</p>
+                                    {project.deadline && (
+                                        <p><strong className="text-gray-700">Deadline:</strong> {formatDateToDDMMYYYY(project.deadline)} ({calculateRemainingDays(project.deadline)})</p>
+                                    )}
+                                    {!project.deadline && (
+                                        <p><strong className="text-gray-700">Deadline:</strong> No Deadline</p>
+                                    )}
+                                    {project.completedAt && (
+                                        <p><strong className="text-gray-700">Completed On:</strong> {formatDateTime(project.completedAt)}</p>
+                                    )}
+                                    {project.droppedAt && (
+                                        <p><strong className="text-gray-700">Dropped On:</strong> {formatDateTime(project.droppedAt)}</p>
+                                    )}
+                                    {project.approvedAt && (
+                                        <p><strong className="text-gray-700">Approved On:</strong> {formatDateTime(project.approvedAt)}</p>
+                                    )}
+                                </div>
+                            </div>
+                            <div className="flex items-center mb-3">
+                                <span className={`px-3 py-1 rounded-full text-white text-xs font-semibold ${currentStatusDisplay.color} shadow-sm`}>
+                                    {currentStatusDisplay.text}
+                                </span>
+                                {project.requestedStatus && (
+                                    <span className={`ml-2 px-2 py-0.5 rounded-full text-white text-xxs font-medium bg-purple-600 shadow-sm`}>
+                                        Pending: {requestedStatusDisplay.text} ({isEditor && !isAdmin ? 'waiting for approval' : `by ${project.requestedBy ? project.requestedBy.substring(0, 4) + '...' : 'Unknown'}`})
+                                    </span>
+                                )}
+                            </div>
+                            <p className="text-gray-700 mb-3 text-sm break-words flex-grow overflow-hidden max-h-16">
+                                <strong className="text-gray-700">Note:</strong> {project.note || 'No note provided.'}
+                            </p>
+                        </>
+                    )}
+                    <div className="flex justify-end space-x-2 mt-auto">
+                        {isEditing ? (
+                            <>
+                                <button
+                                    onClick={handleCancelEdit}
+                                    className="bg-gray-400 hover:bg-gray-500 text-white text-xs font-semibold py-2 px-4 rounded-full shadow-md transition duration-300 ease-in-out transform hover:scale-105"
+                                >
+                                    Cancel
+                                </button>
+                                <button
+                                    onClick={handleSaveEdit}
+                                    className="bg-yellow-500 hover:bg-yellow-600 text-black text-xs font-semibold py-2 px-4 rounded-full shadow-md transition duration-300 ease-in-out transform hover:scale-105"
+                                >
+                                    Save
+                                </button>
+                            </>
+                        ) : (
+                            <>
+                                {isAdmin && project.requestedStatus && (
+                                    <>
+                                        <button
+                                            onClick={() => onApproveStatusChange(project.id)}
+                                            className="bg-green-600 hover:bg-green-700 text-white text-xs font-semibold py-2 px-4 rounded-full shadow-md transition duration-300 ease-in-out transform hover:scale-105"
+                                        >
+                                            Approve
+                                        </button>
+                                        <button
+                                            onClick={() => onRejectStatusChange(project.id)}
+                                            className="bg-red-600 hover:bg-red-700 text-white text-xs font-semibold py-2 px-4 rounded-full shadow-md transition duration-300 ease-in-out transform hover:scale-105"
+                                        >
+                                            Reject
+                                        </button>
+                                    </>
+                                )}
+                                {(isAdmin || isEditor) && (
+                                    <button
+                                        onClick={() => setIsEditing(true)}
+                                        className="bg-gray-700 hover:bg-gray-800 text-white text-xs font-semibold py-2 px-4 rounded-full shadow-md transition duration-300 ease-in-out transform hover:scale-105"
+                                    >
+                                        Edit
+                                    </button>
+                                )}
+                            </>
+                        )}
+                    </div>
+                </div>
+            );
+        };
+
+        const AddProjectModal = ({ onClose, onAddProject, isAdmin }) => {
+            const [projectName, setProjectName] = React.useState('');
+            const [shootDay, setShootDay] = React.useState('');
+            const [note, setNote] = React.useState('');
+            const [deadline, setDeadline] = React.useState('');
+            const [errorMessage, setErrorMessage] = React.useState('');
+
+            const getTodayDate = () => {
+                const today = new Date();
+                const year = today.getFullYear();
+                const month = String(today.getMonth() + 1).padStart(2, '0');
+                const day = String(today.getDate()).padStart(2, '0');
+                return `${year}-${month}-${day}`;
+            };
+
+            const handleSubmit = (e) => {
+                e.preventDefault();
+                if (!projectName.trim() || !shootDay.trim()) {
+                    setErrorMessage('Project Name and Shoot Day are required.');
+                    return;
+                }
+                const newProject = {
+                    projectName: projectName.trim(),
+                    shootDay: new Date(shootDay),
+                    note: note.trim(),
+                    deadline: deadline ? new Date(deadline) : null,
+                };
+                onAddProject(newProject);
+                onClose();
+            };
+
+            return (
+                <div className="fixed inset-0 bg-gray-900 bg-opacity-75 flex items-center justify-center z-50 p-4">
+                    <div className="bg-white rounded-xl shadow-2xl p-8 w-full max-w-md transform transition-all duration-300 scale-100">
+                        <h2 className="text-2xl font-bold text-gray-800 mb-6 text-center">Add New Project</h2>
+                        <form onSubmit={handleSubmit}>
+                            <div className="mb-4">
+                                <label htmlFor="projectName" className="block text-gray-700 text-sm font-bold mb-2">
+                                    Project Name:
+                                </label>
+                                <input
+                                    type="text"
+                                    id="projectName"
+                                    className="shadow appearance-none border rounded-lg w-full py-3 px-4 text-gray-700 leading-tight focus:outline-none focus:ring-2 focus:ring-yellow-400"
+                                    value={projectName}
+                                    onChange={(e) => setProjectName(e.target.value)}
+                                    required
+                                />
+                            </div>
+                            <div className="mb-6">
+                                <label htmlFor="shootDay" className="block text-gray-700 text-sm font-bold mb-2">
+                                    Shoot Day:
+                                </label>
+                                <input
+                                    type="date"
+                                    id="shootDay"
+                                    className="shadow appearance-none border rounded-lg w-full py-3 px-4 text-gray-700 leading-tight focus:outline-none focus:ring-2 focus:ring-yellow-400"
+                                    value={shootDay}
+                                    onChange={(e) => setShootDay(e.target.value)}
+                                    max={getTodayDate()}
+                                    required
+                                />
+                            </div>
+                            {isAdmin && (
+                                <div className="mb-6">
+                                    <label htmlFor="deadline" className="block text-gray-700 text-sm font-bold mb-2">
+                                        Deadline (Optional):
+                                    </label>
+                                    <input
+                                        type="date"
+                                        id="deadline"
+                                        className="shadow appearance-none border rounded-lg w-full py-3 px-4 text-gray-700 leading-tight focus:outline-none focus:ring-2 focus:ring-yellow-400"
+                                        value={deadline}
+                                        onChange={(e) => setDeadline(e.target.value)}
+                                    />
+                                </div>
+                            )}
+                            <div className="mb-6">
+                                <label htmlFor="note" className="block text-gray-700 text-sm font-bold mb-2">
+                                    Note:
+                                </label>
+                                <textarea
+                                    id="note"
+                                    rows="3"
+                                    className="shadow appearance-none border rounded-lg w-full py-3 px-4 text-gray-700 leading-tight focus:outline-none focus:ring-2 focus:ring-yellow-400 resize-none"
+                                    value={note}
+                                    onChange={(e) => setNote(e.target.value)}
+                                ></textarea>
+                            </div>
+                            {errorMessage && (
+                                <p className="text-red-500 text-xs italic mb-4 text-center">{errorMessage}</p>
+                            )}
+                            <div className="flex justify-end space-x-4">
+                                <button
+                                    type="button"
+                                    onClick={onClose}
+                                    className="bg-gray-400 hover:bg-gray-500 text-white font-bold py-3 px-6 rounded-full shadow-md transition duration-300 ease-in-out"
+                                >
+                                    Cancel
+                                </button>
+                                <button
+                                    type="submit"
+                                    className="bg-yellow-500 hover:bg-yellow-600 text-black font-bold py-3 px-6 rounded-full shadow-md transition duration-300 ease-in-out"
+                                >
+                                    Add Project
+                                </button>
+                            </div>
+                        </form>
+                    </div>
+                </div>
+            );
+        };
+
+        ReactDOM.createRoot(document.getElementById('root')).render(<App />);
+    </script>
+</body>
+</html>
