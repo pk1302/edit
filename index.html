@@ -256,61 +256,73 @@
             };
 
             const handleUpdateProjectStatus = async (projectId, newStatus) => {
-                console.log(`handleUpdateProjectStatus: Updating project ${projectId} to status ${newStatus}.`);
-                if (!db) {
-                    showMessage("Database not initialized.", "error");
-                    console.error("handleUpdateProjectStatus: DB is null.");
-                    return;
-                }
-                try {
-                    const projectRef = doc(db, `artifacts/${__app_id}/public/data/projects`, projectId);
-                    const currentProject = projects.find(p => p.id === projectId);
-                    if (!currentProject) {
-                        showMessage("Project not found.", "error");
-                        console.error(`handleUpdateProjectStatus: Project ${projectId} not found in state.`);
-                        return;
-                    }
-                    if (isAdmin) {
-                        const updateData = { status: newStatus, requestedStatus: null, requestedBy: null, approvedAt: null };
-                        if (newStatus === 'completed') {
-                            updateData.completedAt = serverTimestamp();
-                            updateData.droppedAt = null;
-                        } else if (newStatus === 'dropped') {
-                            updateData.droppedAt = serverTimestamp();
-                            updateData.completedAt = null;
-                        } else {
-                            updateData.completedAt = null;
-                            updateData.droppedAt = null;
-                        }
-                        await updateDoc(projectRef, updateData);
-                        console.log(`handleUpdateProjectStatus: Project ${projectId} status updated by admin to ${newStatus}.`);
-                        showMessage("Project status updated by admin!", "success");
-                    } else {
-                        if (newStatus === 'completed' || newStatus === 'dropped') {
-                            await updateDoc(projectRef, {
-                                requestedStatus: newStatus,
-                                requestedBy: userId,
-                            });
-                            console.log(`Project ${projectId} status change to ${newStatus} requested by ${userId}.`);
-                            showMessage(`Status change to '${newStatus}' requested. Pending admin approval.`, "info");
-                        } else {
-                            await updateDoc(projectRef, {
-                                status: newStatus,
-                                requestedStatus: null,
-                                requestedBy: null,
-                                completedAt: null,
-                                droppedAt: null,
-                                approvedAt: null,
-                            });
-                            console.log(`Project ${projectId} status updated to ${newStatus} by non-admin.`);
-                            showMessage("Project status updated!", "success");
-                        }
-                    }
-                } catch (e) {
-                    console.error("handleUpdateProjectStatus: Error updating document: ", e);
-                    showMessage("Error updating project status. Please try again.", "error");
-                }
+    console.log(`handleUpdateProjectStatus: Updating project ${projectId} to status ${newStatus}.`);
+    if (!db) {
+        showMessage("Database not initialized.", "error");
+        console.error("handleUpdateProjectStatus: DB is null.");
+        return;
+    }
+    try {
+        const projectRef = doc(db, `artifacts/${__app_id}/public/data/projects`, projectId);
+        const currentProject = projects.find(p => p.id === projectId);
+        if (!currentProject) {
+            showMessage("Project not found.", "error");
+            console.error(`handleUpdateProjectStatus: Project ${projectId} not found in state.`);
+            return;
+        }
+
+        if (isAdmin) {
+            // Admin directly updates the status
+            const updateData = {
+                status: newStatus,
+                requestedStatus: null,
+                requestedBy: null,
+                approvedAt: serverTimestamp(),
             };
+            if (newStatus === 'completed') {
+                updateData.completedAt = serverTimestamp();
+                updateData.droppedAt = null;
+            } else if (newStatus === 'dropped') {
+                updateData.droppedAt = serverTimestamp();
+                updateData.completedAt = null;
+            } else {
+                updateData.completedAt = null;
+                updateData.droppedAt = null;
+            }
+            await updateDoc(projectRef, updateData);
+            console.log(`Admin updated project ${projectId} to ${newStatus}`);
+            showMessage("Project status updated by admin!", "success");
+        } else if (isEditor) {
+            if (newStatus === 'completed' || newStatus === 'dropped') {
+                // Editors must request status change
+                await updateDoc(projectRef, {
+                    requestedStatus: newStatus,
+                    requestedBy: userId,
+                });
+                console.log(`Editor requested status change to ${newStatus} for project ${projectId}`);
+                showMessage(`Status change to '${newStatus}' requested. Awaiting admin approval.`, "info");
+            } else {
+                // Editors can directly change between in-progress states
+                await updateDoc(projectRef, {
+                    status: newStatus,
+                    requestedStatus: null,
+                    requestedBy: null,
+                    approvedAt: null,
+                    completedAt: null,
+                    droppedAt: null,
+                });
+                console.log(`Editor updated project ${projectId} to ${newStatus}`);
+                showMessage("Project status updated!", "success");
+            }
+        } else {
+            // Viewers can't update
+            showMessage("Permission denied. You must be an editor or admin to change status.", "error");
+        }
+    } catch (e) {
+        console.error("handleUpdateProjectStatus: Error updating project: ", e);
+        showMessage("Error updating project status. Please try again.", "error");
+    }
+};
 
             const handleApproveStatusChange = async (projectId) => {
                 console.log(`handleApproveStatusChange: Approving status for project ${projectId}.`);
